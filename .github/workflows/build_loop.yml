@@ -9,28 +9,58 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup Xcode
+      - name: Select latest Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest
 
-      - name: Decode Certificates
-        run: |
-            echo "${{ secrets.APPLE_P12 }}"           | base64 --decode > ios_distribution.p12
-    echo "${{ secrets.PROVISIONING_PROFILE }}" | base64 --decode > loop.mobileprovision
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.APPLE_P12 }}
+          p12-password:   ${{ secrets.P12_PASSWORD }}
 
-      - name: Install Certificates
-        run: |
-  
-          security create-keychain -p "" build.keychain  security default-keychain -s ~/Library/Keychains/build.keychain
-security unlock-keychain -p "" ~/Library/Keychains/build.keychain 
-    security import ios_distribution.p12 -t agg -k ~/Library/Keychains/build.keychain -P "${{ secrets.P12_PASSWORD }}" -A
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp loop.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+      - name: Install provisioning profiles
+        uses: apple-actions/download-provisioning-profiles@v1
+        with:
+          profile-base64: |
+            ${{ secrets.PROVISIONING_PROFILE }}
+            ${{ secrets.PP_WATCHAPP }}
+            ${{ secrets.PP_WATCHEXT }}
 
-      - name: Build with Fastlane
+      - name: Debug codesigning
         run: |
-          bundle install
-          bundle exec fastlane build
+          security find-identity -v -p codesigning || true
+          ls -l ~/Library/MobileDevice/Provisioning\ Profiles || true
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Install gems
+        run: bundle install
+
+      - name: Build with fastlane lane
+        continue-on-error: true
+        run: bundle exec fastlane ios build_loop
+
+      - name: Build with gym (fallback)
+        if: failure()
+        run: |
+          bundle exec fastlane run gym \
+            scheme:"LoopWorkspace" \
+            configuration:"Release" \
+            export_method:"app-store" \
+            output_directory:"build" \
+            skip_package_ipa:false
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Loop-IPA
+          path: |
+            build/*.ipa
+            **/*.ipa
