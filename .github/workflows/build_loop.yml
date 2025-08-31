@@ -18,13 +18,15 @@ jobs:
 
       - name: Decode Certificates
         run: |
-          echo "$APPLE_P12" | base64 --decode > ios_distribution.p12
-          echo "$PROVISIONING_PROFILE" | base64 --decode > loop.mobileprovision
+            echo "${{ secrets.APPLE_P12 }}"           | base64 --decode > ios_distribution.p12
+    echo "${{ secrets.PROVISIONING_PROFILE }}" | base64 --decode > loop.mobileprovision
 
       - name: Install Certificates
         run: |
-          security create-keychain -p "" build.keychain
-          security import ios_distribution.p12 -t agg -k ~/Library/Keychains/build.keychain -P "$P12_PASSWORD" -A
+  
+          security create-keychain -p "" build.keychain  security default-keychain -s ~/Library/Keychains/build.keychain
+security unlock-keychain -p "" ~/Library/Keychains/build.keychain 
+    security import ios_distribution.p12 -t agg -k ~/Library/Keychains/build.keychain -P "${{ secrets.P12_PASSWORD }}" -A
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp loop.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
